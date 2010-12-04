@@ -26,15 +26,19 @@ public class CheckEventsReceiver extends BroadcastReceiver {
 
 	private int NOTFICATION_ID = 0;
 	private final String NOTIFICATION_CLICKED = "org.mbs3.android.gatorlug.intent.NOTIFICATION_CLICKED";
-	private final String URL_EVENTS = "http://www.google.com/calendar/ical/mbs3.org_qkoalps94abcijs3ooiba15f40%40group.calendar.google.com/public/basic.ics";
+	private final String URL_EVENTS = "http://www.gatorlug.org/event/ical/all/all/31";
 	
 	private static final String PREFS_NAME = "org.mbs3.android.gatorlug.receiver.CheckEventsReceiver";
 	private static final String UID_PREF_NAME = "UID_PREF_NAME";
 	
+	DefaultHttpClient httpclient = new DefaultHttpClient();
+	CalendarBuilder builder = new CalendarBuilder();
+	{ builder.getRegistry(); }
+
 	@Override 
 	public void onReceive(Context context, Intent intent) {
 		String action = intent.getAction();
-		Log.i("cer", "("+action+") " + intent.toString());
+		Log.i("cer", "(action="+action+") " + intent.toString());
 		
 		if (action != null && action.equals(NOTIFICATION_CLICKED)) {
 			Log.i("cer", "no internet, not going further");
@@ -46,6 +50,15 @@ public class CheckEventsReceiver extends BroadcastReceiver {
 			return;
 		}
 
+		final Context ctx = context;
+		new Thread(new Runnable() {
+			 public void run() { doit(ctx); }
+		}).start();
+		Log.i("cer", "exited onRecv");
+	}
+	
+	void doit(Context context) {
+		
 	    SharedPreferences settings = context.getSharedPreferences(PREFS_NAME, 0);
 	      
 		
@@ -56,21 +69,27 @@ public class CheckEventsReceiver extends BroadcastReceiver {
 	    
 		Calendar cal = getEvents("Meeting"); // filter by meetings
 		ComponentList comps = cal.getComponents();
+		Log.d("cer", "fetched " + comps.size() + " elements from the feed");
 		for(int i = 0; i < comps.size(); i++ ) {
 			VEvent ei = (VEvent)comps.get(i);
 
-			if(ei.getLastModified() == null)
+			if(ei.getLastModified() == null && ei.getDateStamp() == null)
 				continue;
-
-			long thisUid = ei.getLastModified().getDateTime().getTime();
+			
+			long thisUid = ei.getLastModified() != null ? 
+					ei.getLastModified().getDateTime().getTime() :
+					ei.getDateStamp().getDateTime().getTime();
 			
 			if(thisUid > lastSeenUid) {
 				// we haven't seen this one before
-				Log.i("cer", "Haven't seen this UID before: " + thisUid);
+				Log.i("cer", "Haven't seen this UID before ("+lastSeenUid+"): " + thisUid);
 				if(thisUid > highestUidPref) {
 					highestUidPref = thisUid;
 				}
 				notifyNewEvent(context, ei);
+			}
+			else {
+				Log.i("cer", "Already seen this UID before ("+lastSeenUid+"): " + thisUid);
 			}
 			
 		}
@@ -131,15 +150,10 @@ public class CheckEventsReceiver extends BroadcastReceiver {
 
 	private Calendar getEvents(String categoryFilter) {
 		try {
-			DefaultHttpClient httpclient = new DefaultHttpClient();
-
 			HttpGet httpget = new HttpGet(URL_EVENTS);
 
 			HttpResponse response = httpclient.execute(httpget);
 			HttpEntity entity = response.getEntity();
-
-
-			CalendarBuilder builder = new CalendarBuilder();
 			Calendar calendar = builder.build(entity.getContent());
 			
 			// When HttpClient instance is no longer needed, 
